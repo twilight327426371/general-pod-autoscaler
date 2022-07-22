@@ -26,7 +26,7 @@ import (
 var _ Scaler = &CronMetricsScaler{}
 var recordCronMetricsScheduleName = ""
 
-// CronScaler is a crontab GPA
+// CronMetricsScaler is a crontab GPA
 type CronMetricsScaler struct {
 	ranges     []v1alpha1.CronMetricSpec
 	defaultSet v1alpha1.CronMetricSpec
@@ -34,7 +34,7 @@ type CronMetricsScaler struct {
 	now        time.Time
 }
 
-// NewCronScaler initializer crontab GPA
+// NewCronMetricsScaler initializer crontab GPA
 func NewCronMetricsScaler(ranges []v1alpha1.CronMetricSpec) *CronMetricsScaler {
 	var def v1alpha1.CronMetricSpec
 	filter := make([]v1alpha1.CronMetricSpec, 0)
@@ -74,7 +74,7 @@ func (s *CronMetricsScaler) GetReplicas(gpa *v1alpha1.GeneralPodAutoscaler, curr
 	return max, nil
 }
 
-// get current cron config max and min replicas
+// GetCurrentMaxAndMinReplicas get current cron config max and min replicas
 func (s *CronMetricsScaler) GetCurrentMaxAndMinReplicas(gpa *v1alpha1.GeneralPodAutoscaler) (int32, int32, string) {
 	var max, min int32
 	if s.defaultSet.MaxReplicas == 0 && s.defaultSet.MinReplicas == nil {
@@ -109,6 +109,18 @@ func (s *CronMetricsScaler) GetCurrentMaxAndMinReplicas(gpa *v1alpha1.GeneralPod
 		}
 	}
 	return max, min, recordCronMetricsScheduleName
+}
+
+// GetCurrentCronMetricSpecs get schedule relate cronMetricSpec
+func (s *CronMetricsScaler) GetCurrentCronMetricSpecs(gpa *v1alpha1.GeneralPodAutoscaler, schedule string) []v1alpha1.CronMetricSpec {
+	cronMetricSpecs := gpa.Spec.CronMetricMode.CronMetrics
+	expectedCronMetricSpecs := make([]v1alpha1.CronMetricSpec, 0)
+	for _, cronInfo := range cronMetricSpecs {
+		if cronInfo.Schedule == schedule {
+			expectedCronMetricSpecs = append(expectedCronMetricSpecs, cronInfo)
+		}
+	}
+	return expectedCronMetricSpecs
 }
 
 // ScalerName returns scaler name
