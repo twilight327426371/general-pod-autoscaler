@@ -855,8 +855,9 @@ func (a *GeneralController) reconcileAutoscaler(gpa *autoscaling.GeneralPodAutos
 	var minReplicas int32
 	var max, min int32
 	var scheduleName string
-	cronMetricsScale := scalercore.NewCronMetricsScaler(gpa.Spec.CronMetricMode.CronMetrics)
+	var cronMetricsScale *scalercore.CronMetricsScaler
 	if gpa.Spec.CronMetricMode != nil {
+		cronMetricsScale = scalercore.NewCronMetricsScaler(gpa.Spec.CronMetricMode.CronMetrics)
 		max, min, scheduleName = cronMetricsScale.GetCurrentMaxAndMinReplicas(gpa)
 		klog.Infof("current cron schedule: %s, max: %v, min: %v", scheduleName, max, min)
 		gpa.Spec.MinReplicas = &min
