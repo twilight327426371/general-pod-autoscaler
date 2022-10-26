@@ -69,6 +69,7 @@ type GeneralPodAutoscalerSpec struct {
 
 	// maxReplicas is the upper limit for the number of replicas to which the autoscaler can scale up.
 	// It cannot be less that minReplicas.
+	// +optional
 	MaxReplicas int32 `json:"maxReplicas" protobuf:"varint,3,opt,name=maxReplicas"`
 
 	// behavior configures the scaling behavior of the target
