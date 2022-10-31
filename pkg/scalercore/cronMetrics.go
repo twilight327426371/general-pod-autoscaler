@@ -133,17 +133,20 @@ func (s *CronMetricsScaler) getFinalMatchAndMisMatch(gpa *v1alpha1.GeneralPodAut
 	if err != nil {
 		return nil, nil, err
 	}
-	lastTime := gpa.Status.LastCronScheduleTime.DeepCopy()
-	if recordCronMetricsScheduleName != schedule {
-		lastTime = nil
-	}
-	if lastTime == nil || lastTime.IsZero() {
-		lastTime = gpa.CreationTimestamp.DeepCopy()
-	}
-	match := lastTime.Time
-	misMatch := lastTime.Time
-	klog.Infof("Init time: %v, now: %v", lastTime, s.now)
-	t := lastTime.Time
+	//lastTime := gpa.Status.LastCronScheduleTime.DeepCopy()
+	//if recordCronMetricsScheduleName != schedule {
+	//	lastTime = nil
+	//}
+	//if lastTime == nil || lastTime.IsZero() {
+	//	lastTime = gpa.CreationTimestamp.DeepCopy()
+	//}
+	// fix bug: create time 12:08:31, now 12:09:01
+	// schedule: 10-14 12 * * *
+	initTime := getTodayFirstTime()
+	match := initTime
+	misMatch := initTime
+	klog.Infof("Init time: %v, now: %v", initTime, s.now)
+	t := initTime
 	for {
 		if !t.After(s.now) {
 			misMatch = t
@@ -154,9 +157,17 @@ func (s *CronMetricsScaler) getFinalMatchAndMisMatch(gpa *v1alpha1.GeneralPodAut
 		break
 	}
 	// fix bug: misMatch diff s.now < 1 ,but match diff s.now > 1
-	if s.now.Sub(misMatch).Minutes() < 1 && s.now.After(misMatch) && match.Sub(s.now).Minutes() < 1 {
+	// fix bug: misMatch minute is 59, now is xx:59:02
+	if s.now.Sub(misMatch).Minutes() < 1 && s.now.After(misMatch) &&
+		(match.Sub(s.now).Minutes() < 1 || misMatch.Minute() == 59) {
 		return &misMatch, &match, nil
 	}
 
 	return nil, nil, nil
+}
+
+// getTodayFirstTime get today init start time
+func getTodayFirstTime() time.Time {
+	t1 := time.Now()
+	return time.Date(t1.Year(), t1.Month(), t1.Day(), 0, 0, 0, 0, t1.Location())
 }
