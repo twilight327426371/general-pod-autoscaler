@@ -168,6 +168,6 @@ func (s *CronMetricsScaler) getFinalMatchAndMisMatch(gpa *v1alpha1.GeneralPodAut
 
 // getYesterdayFirstTime get today init start time
 func getYesterdayFirstTime() time.Time {
-	t1 := time.Now().Add(-24 * time.Hour)
+	t1 := time.Now().Add(-1 * time.Hour)
 	return time.Date(t1.Year(), t1.Month(), t1.Day(), 0, 0, 0, 0, t1.Location())
 }
