@@ -113,14 +113,19 @@ func TestNotInCronSchedule(t *testing.T) {
 		mode: v1alpha1.CronMetricMode{
 			CronMetrics: []v1alpha1.CronMetricSpec{
 				{
-					Schedule:    "*/1 10-12 * * *",
+					Schedule:    "0-4 10-12 * * *",
 					MinReplicas: intPtr(5),
 					MaxReplicas: 7,
 				},
 				{
-					Schedule:    "*/1 9-10 * * *",
+					Schedule:    "0-59 9-10 * * *",
 					MinReplicas: intPtr(6),
 					MaxReplicas: 8,
+				},
+				{
+					Schedule:    "0-4 13-14 * * *",
+					MinReplicas: intPtr(11),
+					MaxReplicas: 12,
 				},
 				def,
 			},
@@ -137,10 +142,10 @@ func TestNotInCronSchedule(t *testing.T) {
 		}
 		cron := &CronMetricsScaler{ranges: tc.mode.CronMetrics, name: Cron, now: testTime, defaultSet: def}
 		actualMax, actualMin, schedule := cron.GetCurrentMaxAndMinReplicas(defaultGPA)
-		if schedule != "default" {
+		if schedule != "0-4 13-14 * * *" {
 			t.Errorf("desired schedule: `default`, actual schedule: %v", schedule)
 		}
-		if actualMax != 10 && actualMin != 9 {
+		if actualMax != 12 && actualMin != 11 {
 			t.Errorf("desired min: 9, max: 10, actual min: %v, max: %v", actualMin, actualMax)
 		}
 	})
@@ -194,10 +199,10 @@ func TestAcrossPeriods(t *testing.T) {
 		}
 		cron := &CronMetricsScaler{ranges: tc.mode.CronMetrics, name: Cron, now: testTime, defaultSet: def}
 		actualMax, actualMin, schedule := cron.GetCurrentMaxAndMinReplicas(defaultGPA)
-		if schedule != "default" {
+		if schedule != "0-59 10-12 * * *" {
 			t.Errorf("desired schedule: `default`, actual schedule: %v", schedule)
 		}
-		if actualMax != 10 && actualMin != 9 {
+		if actualMax != 7 && actualMin != 5 {
 			t.Errorf("desired min: 9, max: 10, actual min: %v, max: %v", actualMin, actualMax)
 		}
 	})
