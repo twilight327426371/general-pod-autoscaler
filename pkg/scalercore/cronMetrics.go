@@ -142,7 +142,7 @@ func (s *CronMetricsScaler) getFinalMatchAndMisMatch(gpa *v1alpha1.GeneralPodAut
 	//}
 	// fix bug: create time 12:08:31, now 12:09:01
 	// schedule: 10-14 12 * * *
-	initTime := getTodayFirstTime()
+	initTime := getYesterdayFirstTime()
 	match := initTime
 	misMatch := initTime
 	klog.Infof("Init time: %v, now: %v", initTime, s.now)
@@ -159,7 +159,7 @@ func (s *CronMetricsScaler) getFinalMatchAndMisMatch(gpa *v1alpha1.GeneralPodAut
 	// fix bug: misMatch diff s.now < 1 ,but match diff s.now > 1
 	// fix bug: misMatch minute is 59, now is xx:59:02
 	if s.now.Sub(misMatch).Minutes() < 1 && s.now.After(misMatch) &&
-		(match.Sub(s.now).Minutes() < 1 || misMatch.Minute() == 59) {
+		(match.Sub(s.now).Minutes() < 1 || misMatch.Minute() == s.now.Minute()) {
 		return &misMatch, &match, nil
 	}
 
@@ -167,7 +167,7 @@ func (s *CronMetricsScaler) getFinalMatchAndMisMatch(gpa *v1alpha1.GeneralPodAut
 }
 
 // getTodayFirstTime get today init start time
-func getTodayFirstTime() time.Time {
-	t1 := time.Now()
+func getYesterdayFirstTime() time.Time {
+	t1 := time.Now().Add(-24 * time.Hour)
 	return time.Date(t1.Year(), t1.Month(), t1.Day(), 0, 0, 0, 0, t1.Location())
 }
