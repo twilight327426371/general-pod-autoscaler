@@ -158,8 +158,8 @@ func (s *CronMetricsScaler) getFinalMatchAndMisMatch(gpa *v1alpha1.GeneralPodAut
 	}
 	// fix bug: misMatch diff s.now < 1 ,but match diff s.now > 1
 	// fix bug: misMatch minute is 59, now is xx:59:02
-	if s.now.Sub(misMatch).Minutes() < 1 && s.now.After(misMatch) &&
-		(match.Sub(s.now).Minutes() < 1 || misMatch.Minute() == s.now.Minute()) {
+	if s.now.Sub(misMatch).Minutes() <= 1 && s.now.After(misMatch) &&
+		(match.Sub(s.now).Minutes() <= 1 || misMatch.Minute() == s.now.Minute()) {
 		return &misMatch, &match, nil
 	}
 
