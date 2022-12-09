@@ -352,7 +352,7 @@ func TestInCronScheduleSix(t *testing.T) {
 			CreationTimestamp: metav1.Time{Time: testTime1.Add(-60 * time.Minute)},
 		},
 		Status: v1alpha1.GeneralPodAutoscalerStatus{
-			LastCronScheduleTime: &lastTime,
+			LastCronScheduleTime: &lastTime,g
 		},
 	}
 	def := v1alpha1.CronMetricSpec{
