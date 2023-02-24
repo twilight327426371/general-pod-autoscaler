@@ -928,6 +928,7 @@ func (a *GeneralController) reconcileAutoscaler(gpa *autoscaling.GeneralPodAutos
 		if gpa.Spec.Behavior == nil {
 			desiredReplicas = a.normalizeDesiredReplicas(gpa, key, currentReplicas, desiredReplicas, minReplicas)
 		} else {
+			klog.V(4).Infof("%s start behaviors", gpa.Name)
 			desiredReplicas = a.normalizeDesiredReplicasWithBehaviors(gpa, key, currentReplicas, desiredReplicas, minReplicas)
 		}
 		klog.V(4).Infof("desire: %v, current: %v, min: %v, max: %v",
@@ -1296,7 +1297,7 @@ func (a *GeneralController) stabilizeRecommendationWithBehaviors(args Normalizat
 // It doesn't consider the stabilizationWindow, it is done separately
 func (a *GeneralController) convertDesiredReplicasWithBehaviorRate(args NormalizationArg) (int32, string, string) {
 	var possibleLimitingReason, possibleLimitingMessage string
-	if args.DesiredReplicas > args.CurrentReplicas {
+	if args.DesiredReplicas > args.CurrentReplicas && args.ScaleUpBehavior != nil {
 		a.scaleUpEventsLock.Lock()
 		defer a.scaleUpEventsLock.Unlock()
 
@@ -1318,7 +1319,7 @@ func (a *GeneralController) convertDesiredReplicasWithBehaviorRate(args Normaliz
 		if args.DesiredReplicas > maximumAllowedReplicas {
 			return maximumAllowedReplicas, possibleLimitingReason, possibleLimitingMessage
 		}
-	} else if args.DesiredReplicas < args.CurrentReplicas {
+	} else if args.DesiredReplicas < args.CurrentReplicas && args.ScaleDownBehavior != nil {
 		a.scaleDownEventsLock.Lock()
 		defer a.scaleDownEventsLock.Unlock()
 
