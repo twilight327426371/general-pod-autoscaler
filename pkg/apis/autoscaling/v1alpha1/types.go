@@ -197,6 +197,9 @@ type CronMetricSpec struct {
 	// It cannot be less that minReplicas.
 	MaxReplicas int32 `json:"maxReplicas" protobuf:"varint,3,opt,name=maxReplicas"`
 
+	// Priority When there are two identical cron rules, select according to priority
+	Priority int `json:"priority" protobuf:"varint,3,opt,name=priority"`
+
 	// MetricSpec specifies how to scale based on a single metric
 	// (only `type` and one other matching field should be set at once).
 	MetricSpec

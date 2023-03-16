@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ocgi/general-pod-autoscaler/pkg/scalercore"
+
 	"k8s.io/klog"
 
 	"github.com/robfig/cron"
@@ -153,10 +155,11 @@ func ValidateHorizontalPodAutoscalerStatusUpdate(newAutoscaler, oldAutoscaler *a
 	return allErrs
 }
 
-// CronMetric set to check conflict
+// CronSet set to check conflict
 type CronSet struct {
 	schedule string
 	Type     string
+	Priority int
 	set      mapset.Set
 }
 
@@ -165,12 +168,11 @@ func validateCronMetric(cronMetricMode *autoscaling.CronMetricMode, fldPath *fie
 	if len(cronMetricMode.CronMetrics) == 0 {
 		allErrs = append(allErrs, field.Forbidden(fldPath.Child("cronMetrics"), "at least one cronMetrics should set"))
 	}
-	//if cronMetricMode.DefaultReplicas < 1 {
-	//	allErrs = append(allErrs, field.Invalid(fldPath.Child("defaultReplicas"), cronMetricMode.DefaultReplicas, "must be greater than 0"))
-	//}
-	start := time.Now()
-	setSlice := make([]CronSet, 0)
+
 	var defaultSetNum int
+	start := time.Now()
+	cycleSetSlice := make([]CronSet, 0)
+	customSetSlice := make([]CronSet, 0)
 	defaultCronSpec := make([]autoscaling.CronMetricSpec, 0)
 	klog.Infof("webhook cronMetrics: %v", cronMetricMode.CronMetrics)
 	for _, cronRange := range cronMetricMode.CronMetrics {
@@ -193,31 +195,62 @@ func validateCronMetric(cronMetricMode *autoscaling.CronMetricMode, fldPath *fie
 				defaultCronSpec = append(defaultCronSpec, cronRange)
 				continue
 			}
-			sch, err := cron.ParseStandard(cronRange.Schedule)
+			year, sch, err := scalercore.ParseStandardWithYear(cronRange.Schedule)
+			//sch, err := cron.ParseStandard(cronRange.Schedule)
 			if err != nil {
 				allErrs = append(allErrs, field.Forbidden(fldPath.Child("schedule"), err.Error()))
 				continue
 			}
 			schSet := mapset.NewSet()
-			next := start
-			for {
-				next = sch.Next(next)
-				schSet.Add(next)
-				if next.Month() != start.Month() {
-					break
+			// year is not zero add to cycleSetSlice to validate
+			if year != 0 {
+				// must set year to start, example: now is 2023, but set 2024 cron set
+				next := time.Date(year, start.Month(), start.Day(), start.Hour(), start.Minute(),
+					start.Second(), start.Nanosecond(), start.Location())
+				for {
+					next = sch.Next(next)
+					schSet.Add(next)
+					if next.Year() != year {
+						break
+					}
 				}
+				cycleSetSlice = append(cycleSetSlice, CronSet{
+					cronRange.Schedule,
+					string(cronRange.ContainerResource.Name),
+					cronRange.Priority,
+					schSet,
+				})
+			} else {
+				next := start
+				for {
+					next = sch.Next(next)
+					schSet.Add(next)
+					if next.Month() != start.Month() {
+						break
+					}
+				}
+				newSchSet := mapset.NewSet()
+				for _, date := range schSet.ToSlice() {
+					dataTime := date.(time.Time)
+					newDataTime := time.Date(year, dataTime.Month(), dataTime.Day(), dataTime.Hour(), dataTime.Minute(),
+						dataTime.Second(), dataTime.Nanosecond(), dataTime.Location())
+					newSchSet.Add(newDataTime)
+				}
+				customSetSlice = append(customSetSlice, CronSet{
+					cronRange.Schedule,
+					string(cronRange.ContainerResource.Name),
+					cronRange.Priority,
+					newSchSet,
+				})
 			}
-			setSlice = append(setSlice, CronSet{
-				cronRange.Schedule,
-				string(cronRange.ContainerResource.Name),
-				schSet,
-			})
 		}
 	}
 	// allow set two default, but min and max need same
-	if defaultSetNum > 2 {
+	// not set default is forbidden
+	if defaultSetNum <= 0 || defaultSetNum > 2 {
 		allErrs = append(allErrs, field.Forbidden(fldPath.Child("cronMetrics"), "only two or one `default` schedule cronMetrics should set"))
-	} else if defaultSetNum == 2 {
+	}
+	if defaultSetNum == 2 {
 		first := defaultCronSpec[0]
 		two := defaultCronSpec[1]
 		klog.Infof("first: %v, two: %v", first, two)
@@ -226,10 +259,13 @@ func validateCronMetric(cronMetricMode *autoscaling.CronMetricMode, fldPath *fie
 				" cronMetrics must with same minReplicates and maxReplicates set"))
 		}
 	}
-	// not set default is forbidden
-	if defaultSetNum <= 0 {
-		allErrs = append(allErrs, field.Forbidden(fldPath.Child("cronMetrics"), "only two or one `default` schedule cronMetrics should set"))
-	}
+	allErrs = checkConflict(cycleSetSlice, allErrs, fldPath)
+	allErrs = checkConflict(customSetSlice, allErrs, fldPath)
+	return allErrs
+}
+
+// checkConflict check CronSet conflict info
+func checkConflict(setSlice []CronSet, allErrs field.ErrorList, fldPath *field.Path) field.ErrorList {
 	for i := 0; i <= len(setSlice); i++ {
 		for j := i + 1; j < len(setSlice); j++ {
 			if setSlice[i].Type != setSlice[j].Type && setSlice[i].schedule == setSlice[j].schedule {
@@ -237,9 +273,11 @@ func validateCronMetric(cronMetricMode *autoscaling.CronMetricMode, fldPath *fie
 				continue
 			}
 			IntersectSet := setSlice[i].set.Intersect(setSlice[j].set)
-			if IntersectSet.Cardinality() > 0 {
-				allErrs = append(allErrs, field.Forbidden(fldPath.Child("schedule"), fmt.Sprintf("schedule time conflict, schedule: %s conflict with %s",
-					setSlice[i].schedule, setSlice[j].schedule)))
+			// Priority all true, but Cardinality time
+			if IntersectSet.Cardinality() > 0 && (setSlice[i].Priority == setSlice[j].Priority) {
+				allErrs = append(allErrs, field.Forbidden(fldPath.Child("schedule"),
+					fmt.Sprintf("schedule time conflict, schedule: %s conflict with %s, Priority: %v, Priority: %v", setSlice[i].schedule,
+						setSlice[j].schedule, setSlice[i].Priority, setSlice[j].Priority)))
 				break
 			}
 		}

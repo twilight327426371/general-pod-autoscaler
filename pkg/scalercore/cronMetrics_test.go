@@ -31,10 +31,6 @@ type TestCronSchedule struct {
 	time    time.Time
 }
 
-func intPtr(v int32) *int32 {
-	return &v
-}
-
 func TestInCronScheduleFirst(t *testing.T) {
 	t1 := time.Now()
 	testTime1 := time.Date(t1.Year(), t1.Month(), t1.Day(), 9, 00, 01, 0, t1.Location())
@@ -443,6 +439,67 @@ func TestInCronScheduleSeven(t *testing.T) {
 func TestInCronScheduleEighth(t *testing.T) {
 	t1 := time.Now()
 	testTime1 := time.Date(t1.Year(), t1.Month(), t1.Day(), 22, 04, 00, 01, t1.Location())
+	lastTime := metav1.Time{Time: testTime1.Add(-1 * time.Second)}
+	gpa := &v1alpha1.GeneralPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			CreationTimestamp: metav1.Time{Time: testTime1.Add(-60 * time.Minute)},
+		},
+		Status: v1alpha1.GeneralPodAutoscalerStatus{
+			LastCronScheduleTime: &lastTime,
+		},
+	}
+	def := v1alpha1.CronMetricSpec{
+		Schedule:    "default",
+		MinReplicas: intPtr(9),
+		MaxReplicas: 10,
+	}
+	tc := TestCronSchedule{
+		name: "single timeRange, out of range",
+		mode: v1alpha1.CronMetricMode{
+			CronMetrics: []v1alpha1.CronMetricSpec{
+				{
+					Schedule:    "15-59 19 * * *",
+					MinReplicas: intPtr(5),
+					MaxReplicas: 7,
+				},
+				{
+					Schedule:    "0-59 20-21 * * *",
+					MinReplicas: intPtr(6),
+					MaxReplicas: 8,
+				},
+				{
+					Schedule:    "0-4 22 * * *",
+					MinReplicas: intPtr(11),
+					MaxReplicas: 12,
+				},
+				def,
+			},
+		},
+	}
+	t.Run(tc.name, func(t *testing.T) {
+		defaultGPA := gpa
+		if tc.gpa != nil {
+			defaultGPA = tc.gpa
+		}
+		testTime := testTime1
+		if !tc.time.IsZero() {
+			testTime = tc.time
+		}
+		cron := &CronMetricsScaler{ranges: tc.mode.CronMetrics, name: Cron, now: testTime, defaultSet: def}
+		actualMax, actualMin, schedule := cron.GetCurrentMaxAndMinReplicas(defaultGPA)
+		if schedule != "0-4 22 * * *" {
+			t.Errorf("desired schedule: `0-4 22 * * *`, actual schedule: %v", schedule)
+		}
+		if actualMax != 12 && actualMin != 11 {
+			t.Errorf("desired min: 11, max: 12, actual min: %v, max: %v", actualMin, actualMax)
+		}
+	})
+}
+
+// TestInCronScheduleEighth 22:04:00-000 nanosecond is zero in "0-4 22 * * *"
+func TestInCronScheduleNinth(t *testing.T) {
+	t1 := time.Now()
+	testTime1 := time.Date(t1.Year(), t1.Month(), t1.Day(), 22, 04, 00, 00, t1.Location())
 	lastTime := metav1.Time{Time: testTime1.Add(-1 * time.Second)}
 	gpa := &v1alpha1.GeneralPodAutoscaler{
 		ObjectMeta: metav1.ObjectMeta{

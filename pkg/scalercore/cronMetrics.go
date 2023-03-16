@@ -15,6 +15,8 @@
 package scalercore
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron"
@@ -86,6 +88,7 @@ func (s *CronMetricsScaler) GetCurrentMaxAndMinReplicas(gpa *v1alpha1.GeneralPod
 	min = *s.defaultSet.MinReplicas
 	recordCronMetricsScheduleName = s.defaultSet.Schedule
 	//only one schedule satisfy
+	crs := make([]v1alpha1.CronMetricSpec, 0)
 	for _, cr := range s.ranges {
 		if cr.Schedule == "default" {
 			//ignore `default` cron set
@@ -101,13 +104,35 @@ func (s *CronMetricsScaler) GetCurrentMaxAndMinReplicas(gpa *v1alpha1.GeneralPod
 		if finalMatch == nil {
 			continue
 		} else {
-			max = cr.MaxReplicas
-			min = *cr.MinReplicas
-			recordCronMetricsScheduleName = cr.Schedule
-			klog.Infof("Schedule %v recommend %v max replicas, min replicas: %v", cr.Schedule, max, min)
-			return max, min, recordCronMetricsScheduleName
+			// exist multi cr with Priority
+			crs = append(crs, cr)
+			//max = cr.MaxReplicas
+			//min = *cr.MinReplicas
+			//recordCronMetricsScheduleName = cr.Schedule
+			//klog.Infof("Schedule %v recommend %v max replicas, min replicas: %v", cr.Schedule, max, min)
+			//return max, min, recordCronMetricsScheduleName
 		}
 	}
+	klog.Infof("get crs: %v", crs)
+	// not found, use default
+	if len(crs) == 0 {
+		return max, min, recordCronMetricsScheduleName
+	}
+	var maxPriority int
+	var maxCr v1alpha1.CronMetricSpec
+	// choose max priority cron spec
+	for _, cr := range crs {
+		// equal some old cronHpa config not set Priority
+		if cr.Priority >= maxPriority {
+			maxPriority = cr.Priority
+			maxCr = cr
+		}
+	}
+	max = maxCr.MaxReplicas
+	min = *maxCr.MinReplicas
+	recordCronMetricsScheduleName = maxCr.Schedule
+	klog.Infof("Schedule %v recommend %v max replicas, min replicas: %v, Priority: %d",
+		maxCr.Schedule, max, min, maxCr.Priority)
 	return max, min, recordCronMetricsScheduleName
 }
 
@@ -129,10 +154,20 @@ func (s *CronMetricsScaler) ScalerName() string {
 }
 
 func (s *CronMetricsScaler) getFinalMatchAndMisMatch(gpa *v1alpha1.GeneralPodAutoscaler, schedule string) (*time.Time, *time.Time, error) {
-	sched, err := cron.ParseStandard(schedule)
+	year, sched, err := ParseStandardWithYear(schedule)
 	if err != nil {
+		klog.Errorf("ParseStandardWithYear err: %s", err)
 		return nil, nil, err
 	}
+	// year is not zero, not same with s.now then ignore
+	// year is zero, not set year scheduled
+	if year != 0 && year != s.now.Year() {
+		return nil, nil, nil
+	}
+	//sched, err := cron.ParseStandard(schedule)
+	//if err != nil {
+	//	return nil, nil, err
+	//}
 	//lastTime := gpa.Status.LastCronScheduleTime.DeepCopy()
 	//if recordCronMetricsScheduleName != schedule {
 	//	lastTime = nil
@@ -156,9 +191,11 @@ func (s *CronMetricsScaler) getFinalMatchAndMisMatch(gpa *v1alpha1.GeneralPodAut
 		match = t
 		break
 	}
+	klog.Infof("get misMatch: %s, match: %s", misMatch, match)
 	// fix bug: misMatch diff s.now < 1 ,but match diff s.now > 1
 	// fix bug: misMatch minute is 59, now is xx:59:02
-	if s.now.Sub(misMatch).Minutes() <= 1 && s.now.After(misMatch) &&
+	// fix bug: current time(now) is the hour and the second, 16:59:00.000, use equal check
+	if s.now.Sub(misMatch).Minutes() <= 1 && (s.now.After(misMatch) || s.now.Equal(misMatch)) &&
 		(match.Sub(s.now).Minutes() <= 1 || misMatch.Minute() == s.now.Minute()) {
 		return &misMatch, &match, nil
 	}
@@ -169,5 +206,23 @@ func (s *CronMetricsScaler) getFinalMatchAndMisMatch(gpa *v1alpha1.GeneralPodAut
 // getYesterdayFirstTime get today init start time
 func getYesterdayFirstTime() time.Time {
 	t1 := time.Now().Add(-1 * time.Hour)
-	return time.Date(t1.Year(), t1.Month(), t1.Day(), 0, 0, 0, 0, t1.Location())
+	return time.Date(t1.Year(), t1.Month(), t1.Day(), t1.Hour(), 0, 0, 0, t1.Location())
+}
+
+// ParseStandardWithYear parse schedule with year
+func ParseStandardWithYear(schedule string) (int, cron.Schedule, error) {
+	schSlice := strings.Split(schedule, " ")
+	if len(schSlice) > 5 {
+		year, err := strconv.Atoi(schSlice[len(schSlice)-1])
+		if err != nil {
+			return 0, nil, err
+		}
+		leaveSchedule := strings.Join(schSlice[:len(schSlice)-1], " ")
+		klog.Infof("get year: %s, schedule: %s, leave schedule: %s", schSlice[len(schSlice)-1],
+			schedule, leaveSchedule)
+		sched, err := cron.ParseStandard(leaveSchedule)
+		return year, sched, err
+	}
+	sched, err := cron.ParseStandard(schedule)
+	return 0, sched, err
 }
